@@ -14,11 +14,11 @@
 import pytest
 import torch
 
-from lerobot.constants import (
+from lerobot.common.constants import (
     OPTIMIZER_PARAM_GROUPS,
     OPTIMIZER_STATE,
 )
-from lerobot.optim.optimizers import (
+from lerobot.common.optim.optimizers import (
     AdamConfig,
     AdamWConfig,
     MultiAdamConfig,
