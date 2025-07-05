@@ -117,12 +117,28 @@ def create_empty_dataset(
                     "width",
                 ],
             }
+            features[f"observation.depths.{cam}"] = {
+                "dtype": "uint16",
+                "shape": (720, 1280),
+                "names": [
+                    "height",
+                    "width",
+                ],
+            }
         else:
             features[f"observation.images.{cam}"] = {
                 "dtype": mode,
                 "shape": (3, 480, 640),
                 "names": [
                     "channels",
+                    "height",
+                    "width",
+                ],
+            }
+            features[f"observation.depths.{cam}"] = {
+                "dtype": "uint16",
+                "shape": (480, 640),
+                "names": [
                     "height",
                     "width",
                 ],
@@ -174,6 +190,33 @@ def load_raw_images_per_camera(ep: str) -> dict[str, np.ndarray]:
 
     return imgs_per_cam
 
+def load_raw_depths_per_camera(ep: str) -> dict[str, np.ndarray]:
+    import cv2
+
+    def processIMG(raw_depth):
+        # deocode and convert to rgb
+        depth_array = np.array(raw_depth, dtype=np.uint8)
+        depth = cv2.imdecode(depth_array, cv2.IMREAD_UNCHANGED)
+        return depth
+
+    depths_per_cam = {
+        "camera_front":[],
+        "camera_left":[],
+        "camera_right":[],
+        "camera_top":[],
+        "camera_wrist_left":[],
+        "camera_wrist_right":[],
+    }
+
+    with h5py.File(ep) as f:
+        for cam in depths_per_cam.keys():
+            raw_depth = f[f'/observations/depth_images/{cam}']
+            for i in range(len(raw_depth)):
+                depths_per_cam[cam].append(processIMG(raw_depth[i]))
+    
+
+    return depths_per_cam
+
 
 def load_raw_episode_data(
     ep: Path,
@@ -216,8 +259,9 @@ def load_raw_episode_data(
     )
 
     imgs_per_cam = load_raw_images_per_camera(ep)
+    depths_per_cam = load_raw_depths_per_camera(ep)
 
-    return imgs_per_cam, state, action
+    return imgs_per_cam, depths_per_cam, state, action
 
 
 def populate_dataset(
@@ -232,7 +276,7 @@ def populate_dataset(
     for ep_idx in tqdm.tqdm(episodes):
         ep_path = ep_files[ep_idx]
 
-        imgs_per_cam, state, action = load_raw_episode_data(ep_path)
+        imgs_per_cam, depths_per_cam, state, action = load_raw_episode_data(ep_path)
         num_frames = state.shape[0]
 
         for i in range(num_frames):
@@ -243,6 +287,9 @@ def populate_dataset(
 
             for camera, img_array in imgs_per_cam.items():
                 frame[f"observation.images.{camera}"] = img_array[i]
+
+            for camera, depth_array in depths_per_cam.items():
+                frame[f"observation.depths.{camera}"] = depth_array[i]
 
             dataset.add_frame(frame, task=task)
 
@@ -300,7 +347,7 @@ def port_aloha(
         )
 
         ###
-        # consolidate feature has been removed in the new version of lerobot
+        # feature 'consolidate' has been removed in the new version of lerobot
         ###
         #dataset.consolidate()
 
@@ -315,6 +362,12 @@ if __name__ == "__main__":
     ###
     # path is the top dir which contains all the task dirs, we process every child dir to get all tasks.
     ###
+    
+    ###                                            |---trajectory
+    ###                             |--task1_dir---|...
+    ### data structure:  root_dir --|--task2_dir
+    ###                             |....   
+
     parser.add_argument("--path", type=str) #/share/project/hejingyang/data/RoboMINDV2
     ###
     # repo_id is the name of the dataset to be created in the hub.
